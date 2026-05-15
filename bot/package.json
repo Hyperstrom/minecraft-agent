@@ -1,0 +1,21 @@
+{
+  "name": "mineagent-bot",
+  "version": "1.0.0",
+  "description": "MineAgent - Autonomous Minecraft AI Bot (Day 1)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "test": "node tests/test_state.js"
+  },
+  "dependencies": {
+    "mineflayer": "^4.23.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "vec3": "^0.1.10",
+    "axios": "^1.6.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

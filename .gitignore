@@ -1,0 +1,48 @@
+# ─── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+
+# ─── Virtual environments ────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Node.js ─────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ─── Environment / secrets ───────────────────────────────────────
+.env
+*.env.local
+
+# ─── Data & model artifacts ──────────────────────────────────────
+data/
+checkpoints/
+*.gguf
+*.bin
+*.safetensors
+
+# ─── ChromaDB ────────────────────────────────────────────────────
+data/chroma_db/
+
+# ─── IDE / OS ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ────────────────────────────────────────────────────────
+*.log
+logs/
