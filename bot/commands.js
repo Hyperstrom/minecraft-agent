@@ -7,15 +7,19 @@
 const { extractState } = require('./state_extractor');
 
 const COMMANDS = {
-  '!help':      'Show this list',
-  '!status':    'Health, food, position',
-  '!state':     'Print full Observation JSON',
-  '!inventory': 'Show inventory',
-  '!follow':    'Bot follows you',
-  '!stop':      'Stop all movement',
-  '!goto x y z': 'Walk to coordinates',
-  '!mine <block>': 'Mine nearest named block',
-  '!say <msg>': 'Bot says message',
+  '!help':           'Show this list',
+  '!status':         'Health, food, position',
+  '!state':          'Print full Observation JSON',
+  '!inventory':      'Show inventory',
+  '!follow':         'Bot follows you',
+  '!stop':           'Stop all movement',
+  '!goto x y z':    'Walk to coordinates',
+  '!mine <block>':  'Mine nearest named block',
+  '!say <msg>':     'Bot says message',
+  '!planner on':    'Start autonomous AI planning',
+  '!planner off':   'Stop autonomous AI planning',
+  '!planner status':'Show planner + current goal',
+  '!goal <text>':   'Set the bot\u2019s current goal',
 };
 
 function setupCommands(bot, actions) {
