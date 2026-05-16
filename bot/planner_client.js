@@ -13,43 +13,64 @@ const log    = require('./logger');
 const { extractState } = require('./state_extractor');
 
 const PLAN_INTERVAL = 5000;   // ms between planning ticks
-const PLAN_TIMEOUT  = 20000;  // ms max wait for /plan response
+const PLAN_TIMEOUT  = 60000;  // ms — 60s handles Llama cold start (first load ~60s)
 
 let _timer    = null;
-let _busy     = false;       // prevent overlapping cycles
+let _busy     = false;
 let _goal     = null;
 let _enabled  = false;
+let _bot      = null;   // stored so stop() can cancel movement
+let _actions  = null;
 
 // ── Public API ────────────────────────────────────────────────────
 
 function start(bot, actions) {
   if (_timer) stop();
+  _bot     = bot;
+  _actions = actions;
   _enabled = true;
   log.info(`[Planner] Started — interval ${PLAN_INTERVAL / 1000}s, backend ${config.backendUrl}`);
+  log.info('[Planner] Waiting 10s for backend warmup before first plan...');
 
-  _timer = setInterval(async () => {
-    if (!_enabled || _busy) return;
-    _busy = true;
-    try {
-      await _tick(bot, actions);
-    } catch (err) {
-      log.error(`[Planner] Cycle error: ${err.message}`);
-    } finally {
-      _busy = false;
-    }
-  }, PLAN_INTERVAL);
+  setTimeout(() => {
+    if (!_enabled) return;
+    _timer = setInterval(async () => {
+      if (!_enabled || _busy) return;
+      _busy = true;
+      try {
+        await _tick(bot, actions);
+      } catch (err) {
+        log.error(`[Planner] Cycle error: ${err.message}`);
+      } finally {
+        _busy = false;
+      }
+    }, PLAN_INTERVAL);
+    log.info('[Planner] First plan tick starting now!');
+  }, 10000);
 }
 
 function stop() {
   _enabled = false;
   if (_timer) { clearInterval(_timer); _timer = null; }
+
+  // Cancel any active pathfinding immediately
+  try {
+    if (_actions) _actions.stopMoving();
+  } catch (_) {}
+
   log.info('[Planner] Stopped.');
 }
 
 function setGoal(goal) {
   _goal = goal;
   log.info(`[Planner] Goal set: "${goal}"`);
+
+  axios.post(`${config.backendUrl}/goal`, { goal }, {
+    timeout: 3000,
+    headers: { 'Content-Type': 'application/json' },
+  }).catch(err => log.error(`[Planner] Failed to sync goal to backend: ${err.message}`));
 }
+
 
 function getGoal() { return _goal; }
 
@@ -77,6 +98,10 @@ async function _tick(bot, actions) {
 
 async function _dispatch(bot, actions, action, params = {}) {
   switch (action) {
+
+    case 'SEEK':
+      await actions.seekBlock(params.target || params.block || 'oak_log');
+      break;
 
     case 'MOVE': {
       const dir = (params.direction || 'north').toLowerCase();

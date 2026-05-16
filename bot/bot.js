@@ -39,20 +39,26 @@ function createBot() {
     log.info('Bot spawned!');
 
     const actions = setupActions(bot);
-    setupCommands(bot, actions);
-    _registerPlannerCommands(bot, actions);
+    setupCommands(bot, actions, planner);  // planner passed — handles all commands
 
     setTimeout(() => {
       const s = extractState(bot);
       log.state(JSON.stringify(s, null, 2));
-      bot.chat('MineAgent online! Type !help for commands.');
+      bot.chat('MineAgent online! Use !goal <text> to set a goal, then !planner on to start.');
 
-      // Start autonomous planner
-      planner.setGoal('survive and explore');
-      planner.start(bot, actions);
+      // Spawn near the first real player found
+      const players = Object.values(bot.players).filter(p => p.username !== bot.username && p.entity);
+      if (players.length > 0) {
+        const pos = players[0].entity.position;
+        const actions = setupActions(bot);
+        actions.goNear(pos.x, pos.y, pos.z, 4);
+        log.info(`[Bot] Moving near player: ${players[0].username}`);
+      }
+
+      // DO NOT set a goal or start planner automatically
+      // User must type: !goal <text>  then  !planner on
     }, 1500);
 
-    // Heartbeat log every 30s
     const hb = setInterval(() => {
       const s = extractState(bot);
       log.state(
@@ -62,61 +68,26 @@ function createBot() {
       );
     }, config.stateLogInterval);
 
-    bot.once('end', () => {
-      clearInterval(hb);
-      planner.stop();
-    });
+    bot.once('end', () => { clearInterval(hb); planner.stop(); });
   });
 
   // ── Health warning ─────────────────────────────────────────────
   bot.on('health', () => {
-    if (bot.health !== undefined && bot.health <= 6) {
-      log.warn(`Low HP: ${bot.health}/20`);
-    }
+    if (bot.health !== undefined && bot.health <= 6) log.warn(`Low HP: ${bot.health}/20`);
   });
 
   bot.on('death',  () => { log.warn('Bot died — respawning'); bot.respawn(); });
   bot.on('chat',   (u, m) => { if (u !== bot.username) log.chat(`<${u}> ${m}`); });
   bot.on('playerJoined', p => log.info(`+ ${p.username} joined`));
   bot.on('playerLeft',   p => log.info(`- ${p.username} left`));
-
-  bot.on('kicked', (reason) => {
-    log.error(`Kicked: ${reason}`);
-    setTimeout(createBot, config.reconnectDelay);
-  });
-  bot.on('error', err  => log.error(`Bot error: ${err.message}`));
-  bot.on('end',   reason => {
+  bot.on('kicked', reason => { log.error(`Kicked: ${reason}`); setTimeout(createBot, config.reconnectDelay); });
+  bot.on('error',  err    => log.error(`Bot error: ${err.message}`));
+  bot.on('end',    reason => {
     log.warn(`Disconnected (${reason}). Reconnecting in ${config.reconnectDelay / 1000}s…`);
     setTimeout(createBot, config.reconnectDelay);
   });
 
   return bot;
-}
-
-// ── Planner commands ──────────────────────────────────────────────
-function _registerPlannerCommands(bot, actions) {
-  bot.on('chat', (username, message) => {
-    if (username === bot.username) return;
-    const raw = message.trim();
-    const cmd = raw.toLowerCase();
-
-    if (cmd === '!planner on') {
-      planner.start(bot, actions);
-      bot.chat('Auto-planner ON');
-
-    } else if (cmd === '!planner off') {
-      planner.stop();
-      bot.chat('Auto-planner OFF');
-
-    } else if (cmd === '!planner status') {
-      bot.chat(`Planner: ${planner.getGoal() ? 'running' : 'stopped'} | Goal: "${planner.getGoal()}"`);
-
-    } else if (cmd.startsWith('!goal ')) {
-      const goal = raw.slice(6).trim();
-      planner.setGoal(goal);
-      bot.chat(`Goal set: "${goal}"`);
-    }
-  });
 }
 
 // ── Entry point ───────────────────────────────────────────────────

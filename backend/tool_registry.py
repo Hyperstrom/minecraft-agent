@@ -10,8 +10,13 @@ TOOLS = [
     },
     {
         "name":        "MINE",
-        "description": "Dig the nearest block of given type",
+        "description": "Dig the nearest block of given type — ONLY use if block IS in nearby_blocks",
         "params":      {"block": "str (e.g. oak_log, iron_ore, stone)"},
+    },
+    {
+        "name":        "SEEK",
+        "description": "Search the world for a block type and pathfind to it — use when target is NOT in nearby_blocks",
+        "params":      {"target": "str (block name to find, e.g. oak_log, coal_ore, stone)"},
     },
     {
         "name":        "COLLECT",

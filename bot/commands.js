@@ -22,14 +22,13 @@ const COMMANDS = {
   '!goal <text>':   'Set the bot\u2019s current goal',
 };
 
-function setupCommands(bot, actions) {
+function setupCommands(bot, actions, planner) {
   bot.on('chat', (username, message) => {
-    // Ignore own messages
     if (username === bot.username) return;
 
     const raw  = message.trim();
     const cmd  = raw.toLowerCase();
-    const args = raw.split(' ').slice(1);  // parts after the command word
+    const args = raw.split(' ').slice(1);
 
     if (cmd === '!help')        return handleHelp(bot);
     if (cmd === '!status')      return handleStatus(bot);
@@ -40,8 +39,29 @@ function setupCommands(bot, actions) {
     if (cmd.startsWith('!goto '))  return handleGoto(bot, actions, args);
     if (cmd.startsWith('!mine '))  return handleMine(bot, actions, args);
     if (cmd.startsWith('!say '))   return bot.chat(raw.slice(5));
+
+    // Planner commands — tolerate !planer typo
+    const isPlanner = cmd.startsWith('!planner') || cmd.startsWith('!planer');
+    if (isPlanner && planner) {
+      if (cmd.endsWith('on'))     { planner.start(bot, actions); bot.chat('🤖 Planner ON'); return; }
+      if (cmd.endsWith('off'))    { planner.stop();              bot.chat('🤖 Planner OFF — bot stopped'); return; }
+      if (cmd.endsWith('status')) {
+        const goal = planner.getGoal() || 'none';
+        bot.chat(`🤖 Planner running | Goal: "${goal}"`);
+        return;
+      }
+    }
+
+    // !goal <text>
+    if (cmd.startsWith('!goal ') && planner) {
+      const goal = raw.slice(6).trim();
+      planner.setGoal(goal);
+      bot.chat(`🎯 Goal set: "${goal}"`);
+      return;
+    }
   });
 }
+
 
 // ─── Handlers ────────────────────────────────────────────────────
 

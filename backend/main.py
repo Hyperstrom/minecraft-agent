@@ -82,6 +82,18 @@ async def startup():
     seed_all()
     logger.info("Backend ready. Ollama model: %s", settings.ollama_model)
 
+    # Warm up Ollama — pre-loads model into GPU RAM so first /plan is instant
+    logger.info("Warming up Ollama (pre-loading model into GPU)...")
+    warmup = await ollama_client.chat(
+        [{"role": "user", "content": "Reply with: {\"action\":\"IDLE\",\"params\":{}}"}],
+        temperature=0.0,
+    )
+    if warmup:
+        logger.info("Ollama warm-up done ✅ — model is loaded and ready")
+    else:
+        logger.warning("Ollama warm-up failed — first /plan request may be slow")
+
+
 # ── Meta endpoints ────────────────────────────────────────────────
 
 @app.get("/", tags=["meta"])
@@ -188,6 +200,42 @@ async def memory_prune(keep: int = MAX_MEMORIES):
     """Delete oldest episode memories, keeping seeded knowledge intact."""
     deleted = prune_memory(keep=keep)
     return {"deleted": deleted, "remaining": mem.count(), "timestamp": _now()}
+
+# ── Debug endpoints ───────────────────────────────────────────────
+
+class DebugPromptRequest(BaseModel):
+    prompt: str = "You are in Minecraft. Reply with: {\"action\":\"IDLE\",\"params\":{},\"reasoning\":\"test ok\"}"
+
+@app.post("/debug/ollama", tags=["debug"])
+async def debug_ollama(body: DebugPromptRequest):
+    """Send a raw prompt to Ollama and return the full response — for testing."""
+    messages = [{"role": "user", "content": body.prompt}]
+    raw = await ollama_client.chat(messages, temperature=0.1)
+    parsed = extract_json(raw or "")
+    return {
+        "model":        settings.ollama_model,
+        "raw_response": raw,
+        "parsed_json":  parsed,
+        "valid":        parsed is not None and parsed.get("action") in TOOL_NAMES,
+        "timestamp":    _now(),
+    }
+
+@app.get("/debug/ollama", tags=["debug"])
+async def debug_ollama_get():
+    """Quick GET test — sends a standard Minecraft planning prompt to Ollama."""
+    messages = [{"role": "user", "content":
+        'You are a Minecraft AI. Reply ONLY with valid JSON: {"action":"IDLE","params":{},"reasoning":"test"}'
+    }]
+    raw = await ollama_client.chat(messages, temperature=0.0)
+    parsed = extract_json(raw or "")
+    return {
+        "model":        settings.ollama_model,
+        "available":    raw is not None,
+        "raw_response": raw,
+        "parsed_json":  parsed,
+        "valid_action": parsed is not None and parsed.get("action") in TOOL_NAMES,
+        "timestamp":    _now(),
+    }
 
 # ── Session logs ──────────────────────────────────────────────────
 
