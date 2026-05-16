@@ -4,11 +4,21 @@
  */
 
 const INTERESTING_BLOCKS = new Set([
+  // Wood — all log types
   'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'dark_oak_log',
+  'acacia_log', 'mangrove_log', 'cherry_log',
+  // Ores
   'coal_ore', 'iron_ore', 'gold_ore', 'diamond_ore', 'emerald_ore',
-  'crafting_table', 'furnace', 'chest', 'water', 'lava',
-  'grass_block', 'dirt', 'stone', 'sand', 'gravel',
+  'deepslate_coal_ore', 'deepslate_iron_ore', 'deepslate_gold_ore',
+  'deepslate_diamond_ore', 'deepslate_emerald_ore',
+  // Structures
+  'crafting_table', 'furnace', 'chest', 'barrel',
+  // Terrain (low priority — sorted last)
+  'grass_block', 'dirt', 'stone', 'cobblestone', 'sand', 'gravel',
+  // Liquids
+  'water', 'lava',
 ]);
+
 
 /**
  * Build the full Observation JSON from a live bot instance.
@@ -78,7 +88,7 @@ function getNearbyEntities(bot, radius = 16) {
 }
 
 /** Return up to 15 nearby "interesting" blocks within radius. */
-function getNearbyBlocks(bot, radius = 5) {
+function getNearbyBlocks(bot, radius = 16) {
   if (!bot.entity) return [];
   const base = bot.entity.position.floored();
   const result = [];
@@ -98,7 +108,15 @@ function getNearbyBlocks(bot, radius = 5) {
     }
   }
 
-  return result.sort((a, b) => a.distance - b.distance).slice(0, 15);
+  // Sort by distance, but de-prioritize grass/dirt (common filler)
+  result.sort((a, b) => {
+    const aFiller = (a.name === 'grass_block' || a.name === 'dirt') ? 1 : 0;
+    const bFiller = (b.name === 'grass_block' || b.name === 'dirt') ? 1 : 0;
+    if (aFiller !== bFiller) return aFiller - bFiller;
+    return a.distance - b.distance;
+  });
+
+  return result.slice(0, 15);
 }
 
 /** Map Minecraft time-of-day ticks to a human label. */

@@ -86,8 +86,24 @@ async function _tick(bot, actions) {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err) {
-    log.error(`[Planner] /plan request failed: ${err.message}`);
-    return;
+    // Transient connection errors — retry once after 2s
+    if (err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+      log.warn(`[Planner] /plan ${err.code} — retrying in 2s...`);
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        resp = await axios.post(`${config.backendUrl}/plan`, state, {
+          timeout: PLAN_TIMEOUT,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err2) {
+        log.error(`[Planner] /plan retry failed: ${err2.message}`);
+        return;
+      }
+    } else {
+      log.error(`[Planner] /plan request failed: ${err.message}`);
+      return;
+    }
+
   }
 
   const { action, params, reasoning, source } = resp.data;

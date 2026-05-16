@@ -30,12 +30,33 @@ function setupActions(bot) {
     bot.pathfinder.setGoal(new GoalBlock(x, y, z));
   }
 
-  /** Approach within `distance` blocks of coordinates. */
-  function goNear(x, y, z, distance = 3) {
-    const movements = new Movements(bot);
-    bot.pathfinder.setMovements(movements);
-    bot.pathfinder.setGoal(new GoalNear(x, y, z, distance));
+  /**
+   * Approach within `distance` blocks of coordinates.
+   * Returns a Promise that resolves when the bot arrives (or times out).
+   */
+  function goNear(x, y, z, distance = 3, timeoutMs = 30000) {
+    return new Promise((resolve) => {
+      const movements = new Movements(bot);
+      bot.pathfinder.setMovements(movements);
+      bot.pathfinder.setGoal(new GoalNear(x, y, z, distance));
+
+      let resolved = false;
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        // Remove BOTH listeners to prevent memory leak
+        bot.removeListener('goal_reached', done);
+        bot.removeListener('path_stop',    done);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+
+      bot.once('goal_reached', done);
+      bot.once('path_stop',    done);
+    });
   }
+
 
   /** Dig a block reference (obtained via bot.blockAt). */
   async function mine(block) {
@@ -75,54 +96,69 @@ function setupActions(bot) {
   }
 
   /**
-   * SEEK — find nearest block within 256 blocks and walk to it.
-   * Used when the LLM decides target is not in immediate nearby_blocks.
+   * SEEK — find nearest block within 256 blocks, walk to it, then mine it.
+   * This completes the full seek-and-collect cycle in one action.
    */
   async function seekBlock(blockName) {
-    // Map friendly names to Minecraft block IDs
     const nameMap = {
-      'food':        null,  // special case handled below
-      'oak_log':     'oak_log',
-      'birch_log':   'birch_log',
-      'acacia_log':  'acacia_log',
-      'jungle_log':  'jungle_log',
-      'spruce_log':  'spruce_log',
-      'dark_oak_log':'dark_oak_log',
-      'coal_ore':    'coal_ore',
-      'iron_ore':    'iron_ore',
-      'stone':       'stone',
-      'cobblestone': 'cobblestone',
-      'water':       'water',
-      'grass_block': 'grass_block',
+      'oak_log':      'oak_log',
+      'birch_log':    'birch_log',
+      'acacia_log':   'acacia_log',
+      'jungle_log':   'jungle_log',
+      'spruce_log':   'spruce_log',
+      'dark_oak_log': 'dark_oak_log',
+      'coal_ore':     'coal_ore',
+      'iron_ore':     'iron_ore',
+      'stone':        'stone',
+      'cobblestone':  'cobblestone',
     };
 
     const target = nameMap[blockName] || blockName;
-
     const blockDef = bot.registry.blocksByName[target];
+
     if (!blockDef) {
-      bot.chat(`Don't know how to seek: ${blockName}`);
+      bot.chat(`Don't know block: ${blockName}`);
       return false;
     }
 
-    const block = bot.findBlock({
-      matching:    blockDef.id,
-      maxDistance: 256,
-    });
+    const block = bot.findBlock({ matching: blockDef.id, maxDistance: 256 });
 
     if (!block) {
-      bot.chat(`Could not find ${blockName} within 256 blocks — exploring further`);
-      // Explore a random direction to find more blocks
-      const dirs = [[50,0,0],[-50,0,0],[0,0,50],[0,0,-50]];
+      // No block found — explore randomly to find more terrain
+      const dirs = [[60,0,0],[-60,0,0],[0,0,60],[0,0,-60]];
       const d = dirs[Math.floor(Math.random() * dirs.length)];
       const pos = bot.entity.position;
-      goTo(Math.floor(pos.x + d[0]), Math.floor(pos.y), Math.floor(pos.z + d[2]));
+      bot.chat(`No ${blockName} found, exploring...`);
+      await goNear(
+        Math.floor(pos.x + d[0]), Math.floor(pos.y), Math.floor(pos.z + d[2]),
+        3, 20000
+      );
       return false;
     }
 
-    bot.chat(`Seeking ${blockName} at (${Math.floor(block.position.x)}, ${Math.floor(block.position.y)}, ${Math.floor(block.position.z)})`);
-    await goNear(block.position.x, block.position.y, block.position.z, 4);
-    return true;
+    const p = block.position;
+    bot.chat(`Going to ${blockName} at (${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)})`);
+
+    // Navigate to the block (waits until arrived or 30s timeout)
+    await goNear(p.x, p.y, p.z, 3, 30000);
+
+    // Now mine it
+    const fresh = bot.blockAt(block.position);
+    if (fresh && fresh.name === target) {
+      try {
+        await bot.dig(fresh);
+        bot.chat(`Collected ${blockName}!`);
+        return true;
+      } catch (e) {
+        // Pathfinder got close enough, try mineNearest as fallback
+        return mineNearest(target);
+      }
+    }
+
+    // Block might have moved (chunk update) — try mineNearest
+    return mineNearest(target);
   }
+
 
   /** Move bot to within 5 blocks of a player by username. */
   function goNearPlayer(username) {

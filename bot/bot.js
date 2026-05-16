@@ -32,7 +32,11 @@ function createBot() {
     auth:     config.auth,
   });
 
+  // Raise limit to avoid "MaxListenersExceededWarning" from repeated goNear calls
+  bot.setMaxListeners(50);
+
   bot.loadPlugin(pathfinder);
+
 
   // ── Spawn ──────────────────────────────────────────────────────
   bot.once('spawn', () => {
