@@ -57,6 +57,12 @@ USER_TEMPLATE = """\
 === SITUATION ANALYSIS ===
 {situation}
 
+=== GOAL PROGRESS ===
+{goal_progress}
+
+=== RECENT ACTIONS (last {recent_count}) ===
+{recent_actions}
+
 === WHAT YOU CAN CRAFT NOW ===
 {craftable_hint}
 
@@ -155,6 +161,13 @@ def build_messages(
         "environment":     state.get("environment", {}),
     }
 
+    # Goal progress (sent by bot's goal_tracker)
+    goal_progress   = state.get("goal_progress", "No structured goal — open-ended.")
+
+    # Recent action history (last N actions the bot took)
+    recent_raw      = state.get("recent_actions", [])
+    recent_actions  = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(recent_raw)) or "  None yet"
+
     situation    = _situation_analysis(state, goal or "")
     craftable_h  = get_craftable_hint(state.get("inventory", {}))
     mem_block    = "\n".join(f"- {m}" for m in (memories or [])[:3]) or "None"
@@ -162,6 +175,9 @@ def build_messages(
     user = USER_TEMPLATE.format(
         state_json=json.dumps(lean_state, indent=2),
         situation=situation,
+        goal_progress=goal_progress,
+        recent_actions=recent_actions,
+        recent_count=len(recent_raw),
         craftable_hint=craftable_h,
         memory_block=mem_block,
         goal=goal or "No goal set — wait for player to set a goal using !goal",

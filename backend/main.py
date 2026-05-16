@@ -55,6 +55,9 @@ class ObservationState(BaseModel):
     environment:     Environment          = Environment()
     goal:            Optional[str]        = None
     timestamp:       str
+    # Phase 2 additions — sent by goal_tracker and planner_client
+    goal_progress:   Optional[str]        = None    # e.g. "3/10 oak_log [███░░░░░░░] 30%"
+    recent_actions:  List[str]            = []      # last N actions taken
 
 class ActionResponse(BaseModel):
     action:    str
@@ -73,6 +76,38 @@ class MemorySearchRequest(BaseModel):
 latest_state:   Optional[Dict] = None
 action_history: List[Dict]     = []
 current_goal:   str            = "survive and explore"
+goal_progress:  str            = ""    # last progress string from bot
+
+# Dangerous actions that should never be dispatched
+DANGEROUS_ACTIONS = {"ATTACK", "KILL", "DROP_ALL", "CLEAR_INVENTORY"}
+# Blocks that are never mined unless explicitly in goal
+NEVER_MINE_UNLESS_GOAL = {"grass_block", "dirt", "sand", "gravel"}
+
+
+def _safety_filter(action: ActionResponse, goal: str) -> ActionResponse:
+    """Block dangerous or nonsensical actions before dispatching."""
+    # Block explicitly dangerous actions
+    if action.action in DANGEROUS_ACTIONS:
+        logger.warning("SAFETY: blocked %s", action.action)
+        return ActionResponse(action="IDLE", params={}, reasoning="safety: blocked dangerous action", source="safety")
+
+    # Block mining wrong blocks
+    if action.action == "MINE":
+        block = action.params.get("block", "")
+        goal_lower = goal.lower()
+        if block in NEVER_MINE_UNLESS_GOAL and block not in goal_lower:
+            logger.warning("SAFETY: blocked MINE(%s) — not in goal '%s'", block, goal)
+            # Redirect to SEEK for the goal's target block
+            target = "oak_log"
+            for kw in ["stone", "coal", "iron", "birch", "acacia"]:
+                if kw in goal_lower:
+                    target = {"stone": "stone", "coal": "coal_ore", "iron": "iron_ore",
+                              "birch": "birch_log", "acacia": "acacia_log"}.get(kw, "oak_log")
+                    break
+            return ActionResponse(action="SEEK", params={"target": target},
+                                  reasoning=f"safety: redirected from wrong-block MINE to SEEK {target}",
+                                  source="safety")
+    return action
 
 # ── Startup ───────────────────────────────────────────────────────
 @app.on_event("startup")
@@ -153,13 +188,24 @@ async def get_state():
 
 @app.post("/plan", response_model=ActionResponse, tags=["agent"])
 async def plan_action(state: ObservationState):
+    global goal_progress
     goal   = state.goal or current_goal
+
+    # Track latest goal progress reported by the bot
+    if state.goal_progress:
+        goal_progress = state.goal_progress
+
     action = await llm_planner(state, goal)
+
+    # Safety filter — last line of defence
+    action = _safety_filter(action, goal)
+
     action_history.append({
         "timestamp": _now(),
         "hp":    state.player.health,
         "food":  state.player.food,
         "goal":  goal,
+        "progress": goal_progress,
         "action": action.model_dump(),
     })
     logger.info("Action [%s]: %s(%s) — %s", action.source, action.action, action.params, action.reasoning)
@@ -168,6 +214,15 @@ async def plan_action(state: ObservationState):
 @app.get("/history", tags=["agent"])
 async def get_history(limit: int = 20):
     return {"history": action_history[-limit:], "total": len(action_history)}
+
+@app.get("/progress", tags=["agent"])
+async def get_progress():
+    """Returns the last known goal progress string from the bot."""
+    return {
+        "goal":     current_goal,
+        "progress": goal_progress or "No structured goal set",
+        "timestamp": _now(),
+    }
 
 # ── Memory endpoints ──────────────────────────────────────────────
 

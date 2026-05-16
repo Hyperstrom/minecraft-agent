@@ -169,7 +169,98 @@ function setupActions(bot) {
     return true;
   }
 
-  return { follow, stopMoving, goTo, goNear, mine, mineNearest, seekBlock, goNearPlayer, chat, getStatus };
+  /**
+   * Craft an item by name. Automatically:
+   *  - Tries 2×2 inventory crafting first (no table needed)
+   *  - If 3×3 recipe, finds/pathfinds to a crafting table
+   *  - Falls back to placing a crafting table if one is in inventory
+   */
+  async function craftItem(itemName, count = 1) {
+    const itemDef = bot.registry.itemsByName[itemName];
+    if (!itemDef) {
+      bot.chat(`Don't know item: ${itemName}`);
+      return false;
+    }
+
+    // ── Try 2×2 crafting (no table) ─────────────────────────────
+    const recipesNoTable = bot.recipesFor(itemDef.id, null, count, null);
+    if (recipesNoTable.length > 0) {
+      try {
+        await bot.craft(recipesNoTable[0], count, null);
+        bot.chat(`Crafted ${count}x ${itemName}`);
+        return true;
+      } catch (e) {
+        // Probably needs 3×3 — fall through
+      }
+    }
+
+    // ── Try 3×3 crafting (requires crafting table) ───────────────
+    const recipesWithTable = bot.recipesFor(itemDef.id, null, count, true);
+    if (recipesWithTable.length === 0) {
+      // Try with undefined (all recipes)
+      const allRecipes = bot.recipesFor(itemDef.id, null, count, null);
+      if (allRecipes.length === 0) {
+        bot.chat(`No recipe found for ${itemName} — missing ingredients?`);
+        return false;
+      }
+    }
+
+    // Find a nearby crafting table
+    const tableId = bot.registry.blocksByName['crafting_table']?.id;
+    let table = tableId ? bot.findBlock({ matching: tableId, maxDistance: 32 }) : null;
+
+    // If no table nearby, try to place one from inventory
+    if (!table) {
+      const tableItem = bot.inventory.items().find(i => i.name === 'crafting_table');
+      if (tableItem) {
+        try {
+          const ground = bot.blockAt(bot.entity.position.offset(0, -1, 0));
+          const refBlock = bot.blockAt(bot.entity.position.offset(1, 0, 0));
+          await bot.equip(tableItem, 'hand');
+          await bot.placeBlock(ground, new (require('vec3'))(0, 1, 0));
+          table = bot.findBlock({ matching: tableId, maxDistance: 5 });
+          bot.chat('Placed crafting table');
+        } catch (e) {
+          bot.chat('Could not place crafting table');
+        }
+      }
+    }
+
+    if (!table) {
+      bot.chat(`Need a crafting table to craft ${itemName}. Seeking one...`);
+      if (tableId) {
+        const farTable = bot.findBlock({ matching: tableId, maxDistance: 128 });
+        if (farTable) {
+          await goNear(farTable.position.x, farTable.position.y, farTable.position.z, 3, 30000);
+          table = bot.blockAt(farTable.position);
+        }
+      }
+      if (!table) {
+        bot.chat(`Could not find a crafting table anywhere nearby`);
+        return false;
+      }
+    }
+
+    // Navigate to the table
+    await goNear(table.position.x, table.position.y, table.position.z, 3, 20000);
+
+    // Craft at table
+    const recipes = bot.recipesFor(itemDef.id, null, count, table);
+    if (recipes.length === 0) {
+      bot.chat(`Missing ingredients for ${itemName}`);
+      return false;
+    }
+    try {
+      await bot.craft(recipes[0], count, table);
+      bot.chat(`Crafted ${count}x ${itemName} at crafting table!`);
+      return true;
+    } catch (e) {
+      bot.chat(`Craft failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  return { follow, stopMoving, goTo, goNear, mine, mineNearest, seekBlock, goNearPlayer, craftItem, chat, getStatus };
 }
 
 module.exports = { setupActions };
