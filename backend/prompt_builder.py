@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from tool_registry import get_tool_schema_text
+from recipe_advisor import get_craftable_hint
 
 logger = logging.getLogger("mineagent.prompt")
 
@@ -36,6 +37,7 @@ State: health=20, food=18, goal=explore → {{"action":"MOVE","params":{{"direct
 USER_TEMPLATE = """\
 Game state:
 {state_json}
+{craftable_hint}
 {memory_block}
 Goal: {goal}
 
@@ -71,6 +73,9 @@ def build_messages(
         "environment":     state.get("environment", {}),
     }
 
+    # Inventory-aware: tell LLM what it can craft right now
+    craftable_hint = get_craftable_hint(state.get("inventory", {}))
+
     mem_block = ""
     if memories:
         mem_lines = "\n".join(f"  - {m}" for m in memories[:3])
@@ -78,6 +83,7 @@ def build_messages(
 
     user = USER_TEMPLATE.format(
         state_json=json.dumps(lean_state, indent=2),
+        craftable_hint=craftable_hint,
         memory_block=mem_block,
         goal=goal or "survive and explore",
     )

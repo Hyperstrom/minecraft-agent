@@ -18,6 +18,7 @@ import session_logger as slog
 from config import settings
 from prompt_builder import build_messages, build_correction_messages, extract_json
 from tool_registry import TOOL_NAMES
+from memory import prune as prune_memory, MAX_MEMORIES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -181,6 +182,12 @@ async def memory_search_get(q: str = Query(..., description="Search query"), n: 
         raise HTTPException(status_code=503, detail="ChromaDB not available")
     results = mem.retrieve(q, n=n)
     return {"query": q, "results": results, "count": len(results)}
+
+@app.post("/memory/prune", tags=["memory"])
+async def memory_prune(keep: int = MAX_MEMORIES):
+    """Delete oldest episode memories, keeping seeded knowledge intact."""
+    deleted = prune_memory(keep=keep)
+    return {"deleted": deleted, "remaining": mem.count(), "timestamp": _now()}
 
 # ── Session logs ──────────────────────────────────────────────────
 

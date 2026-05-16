@@ -99,3 +99,41 @@ def count() -> int:
         return col.count()
     except Exception:
         return 0
+
+
+MAX_MEMORIES = 500   # hard cap to prevent unbounded growth
+
+def prune(keep: int = MAX_MEMORIES) -> int:
+    """
+    Remove oldest memories if collection exceeds `keep` entries.
+    Returns number of entries deleted.
+    Seeded knowledge (ids starting with 'seed_') is never pruned.
+    """
+    col = _init()
+    if col is None:
+        return 0
+
+    total = col.count()
+    if total <= keep:
+        return 0
+
+    try:
+        # Get all episode memories (not seeded knowledge)
+        results = col.get(where={"source": {"$ne": "seed"}})
+        ids     = results.get("ids", [])
+        metas   = results.get("metadatas", [])
+
+        # Sort by timestamp ascending (oldest first)
+        paired  = sorted(zip(ids, metas), key=lambda x: x[1].get("ts", ""))
+        to_delete = len(ids) - keep
+        if to_delete <= 0:
+            return 0
+
+        delete_ids = [pid for pid, _ in paired[:to_delete]]
+        col.delete(ids=delete_ids)
+        logger.info("Pruned %d old memories (total now: %d)", len(delete_ids), col.count())
+        return len(delete_ids)
+
+    except Exception as e:
+        logger.error("Memory prune error: %s", e)
+        return 0

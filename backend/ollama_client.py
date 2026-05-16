@@ -1,9 +1,11 @@
 """
-ollama_client.py — Async HTTP client for Ollama REST API with retry + fallback.
+ollama_client.py — Async HTTP client for Ollama REST API.
+Supports both blocking and streaming modes with fallback.
 """
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -11,8 +13,8 @@ from config import settings
 
 logger = logging.getLogger("mineagent.ollama")
 
-TIMEOUT   = 30.0   # seconds per request
-MAX_TOKENS = 256   # keep responses short
+TIMEOUT    = 30.0
+MAX_TOKENS = 256
 
 
 async def chat(
@@ -21,18 +23,18 @@ async def chat(
     temperature: float = 0.1,
 ) -> Optional[str]:
     """
-    POST to Ollama /api/chat. Returns assistant reply text, or None on failure.
-    Low temperature (0.1) for deterministic, structured JSON output.
+    Blocking Ollama /api/chat call.
+    Returns full assistant reply text, or None on any failure.
     """
     model = model or settings.ollama_model
     payload = {
-        "model":   model,
+        "model":    model,
         "messages": messages,
-        "stream":  False,
+        "stream":   False,
         "options": {
             "temperature": temperature,
             "num_predict": MAX_TOKENS,
-            "stop": ["\n\n", "```"],   # stop after JSON block
+            "stop":        ["\n\n", "```"],
         },
     }
 
@@ -51,10 +53,73 @@ async def chat(
         logger.error("Ollama timed out after %ss", TIMEOUT)
     except httpx.HTTPStatusError as e:
         logger.error("Ollama HTTP %s: %s", e.response.status_code, e.response.text[:200])
-    except (KeyError, Exception) as e:
+    except Exception as e:
         logger.error("Unexpected Ollama error: %s", e)
 
     return None
+
+
+async def chat_stream(
+    messages: List[Dict[str, str]],
+    model: Optional[str] = None,
+    temperature: float = 0.1,
+) -> AsyncIterator[str]:
+    """
+    Streaming Ollama /api/chat call.
+    Yields token chunks as they arrive. Use for real-time display.
+    Falls back gracefully if streaming fails.
+    """
+    model = model or settings.ollama_model
+    payload = {
+        "model":    model,
+        "messages": messages,
+        "stream":   True,
+        "options": {
+            "temperature": temperature,
+            "num_predict": MAX_TOKENS,
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.ollama_url}/api/chat",
+                json=payload,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                        token = chunk.get("message", {}).get("content", "")
+                        if token:
+                            yield token
+                        if chunk.get("done"):
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+    except httpx.ConnectError:
+        logger.error("Ollama streaming: not reachable at %s", settings.ollama_url)
+    except Exception as e:
+        logger.error("Ollama streaming error: %s", e)
+
+
+async def chat_stream_full(
+    messages: List[Dict[str, str]],
+    model: Optional[str] = None,
+    temperature: float = 0.1,
+) -> Optional[str]:
+    """
+    Streaming call that reassembles full text — faster time-to-first-token
+    than blocking, but returns the complete string when done.
+    """
+    parts = []
+    async for token in chat_stream(messages, model, temperature):
+        parts.append(token)
+    return "".join(parts) if parts else None
 
 
 async def is_available() -> bool:
