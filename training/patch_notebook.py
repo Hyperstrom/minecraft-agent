@@ -1,5 +1,5 @@
 """
-patch_notebook.py — Fixes install + data collection cells
+patch_notebook.py — Fixes HF dataset issues
 Run: python training/patch_notebook.py
 """
 import json
@@ -8,23 +8,7 @@ from pathlib import Path
 nb_path = Path("training/mineagent_train.ipynb")
 nb = json.loads(nb_path.read_text(encoding="utf-8"))
 
-# ── Cell 1: Install — remove minedojo (needs Java, fails on Kaggle) ──
-CELL1 = [
-    "import subprocess, sys\n",
-    "\n",
-    "# Core training libs\n",
-    "subprocess.run([sys.executable,'-m','pip','install','-q',\n",
-    "    'unsloth','trl==0.11.0','peft==0.12.0',\n",
-    "    'bitsandbytes','datasets>=2.14','accelerate',\n",
-    "    'huggingface_hub','mwclient','requests'], check=False)\n",
-    "\n",
-    "# NOTE: minedojo removed — requires Java JDK 8 which is not available on Kaggle\n",
-    "# Reddit + YouTube data loaded via HuggingFace datasets API instead\n",
-    "print('Install done')",
-]
-
-# ── Cell 3: Data collection — fix Reddit/YouTube to use HF datasets ──
-CELL3 = [
+CELL3_NEW = [
     "# ── Cell 3: Collect Training Data ───────────────────────────────\n",
     "import json, time, random, requests, os\n",
     "from pathlib import Path\n",
@@ -45,12 +29,11 @@ CELL3 = [
     "        [f.write(json.dumps(x)+'\\n') for x in data]\n",
     "    print(f'Saved {len(data)} -> {path}')\n",
     "\n",
-    "# ── Source 1: Minecraft Wiki (working) ───────────────────────────\n",
-    "def get_wiki(max_pages=600):\n",
+    "# ── Source 1: Minecraft Wiki ─────────────────────────────────────\n",
+    "def get_wiki(max_pages=400):\n",
     "    API = 'https://minecraft.wiki/api.php'\n",
     "    CATS = ['Blocks','Items','Crafting','Mobs','Biomes','Food',\n",
-    "            'Tools','Weapons','Armor','Mechanics','Brewing',\n",
-    "            'Enchanting','Structures','Tutorials','Redstone']\n",
+    "            'Tools','Weapons','Armor','Mechanics']\n",
     "    pairs, seen = [], set()\n",
     "    for cat in CATS:\n",
     "        if len(seen) >= max_pages: break\n",
@@ -66,75 +49,46 @@ CELL3 = [
     "                if len(txt) < 80: continue\n",
     "                pairs.append(qa_chat(f\"What is {p['title']} in Minecraft?\", txt))\n",
     "                pairs.append(qa_chat(f\"How do you use {p['title']} in Minecraft?\", txt[:500]))\n",
-    "                pairs.append(qa_chat(f\"Tell me about {p['title']}.\", txt[:400]))\n",
-    "                time.sleep(0.2)\n",
+    "                time.sleep(0.1)\n",
     "        except Exception as e:\n",
-    "            print(f'Wiki cat {cat} error: {e}')\n",
-    "    print(f'Wiki: {len(pairs)} pairs from {len(seen)} pages')\n",
+    "            pass\n",
+    "    print(f'Wiki: {len(pairs)} pairs')\n",
     "    return pairs\n",
     "\n",
-    "# ── Source 2: Reddit via HuggingFace datasets (no minedojo needed) ──\n",
-    "def get_reddit(limit=12000):\n",
-    "    KW = ['craft','mine','build','survive','wood','stone','coal',\n",
-    "          'iron','diamond','pickaxe','hunger','health','recipe',\n",
-    "          'biome','nether','creeper','enchant','farm']\n",
+    "# ── Source 2: Minecraft HF Datasets (Reliable replacements) ──────\n",
+    "def get_hf_qa(limit=15000):\n",
     "    pairs = []\n",
     "    try:\n",
-    "        # MineDojo Reddit data via HuggingFace\n",
-    "        ds = load_dataset('MineDojo/foundation_model_data', 'reddit',\n",
-    "                          split='train', streaming=True, trust_remote_code=True)\n",
+    "        # Use reliable public Minecraft Q&A dataset instead of broken MineDojo\n",
+    "        ds = load_dataset('naklecha/minecraft-question-answer-700k', split='train', streaming=True)\n",
     "        for item in ds:\n",
     "            if len(pairs) >= limit: break\n",
-    "            t = item.get('title',''); b = item.get('selftext','') or item.get('body','')\n",
-    "            if len(b) < 40: continue\n",
-    "            if not any(k in (t+b).lower() for k in KW): continue\n",
-    "            pairs.append(qa_chat(t, b[:500]))\n",
-    "        print(f'Reddit (MineDojo HF): {len(pairs)} pairs')\n",
-    "    except Exception as e:\n",
-    "        print(f'MineDojo Reddit failed ({e}), trying backup...')\n",
-    "        try:\n",
-    "            # Backup: general gaming Q&A filtered to Minecraft\n",
-    "            ds = load_dataset('sentence-transformers/reddit', split='train',\n",
-    "                              streaming=True)\n",
-    "            for item in ds:\n",
-    "                if len(pairs) >= limit: break\n",
-    "                q = item.get('query',''); a = item.get('response','')\n",
-    "                if not any(k in (q+a).lower() for k in ['minecraft','mine','craft','creeper']): continue\n",
-    "                if len(a) < 40: continue\n",
+    "            q = item.get('question','') or item.get('instruction','')\n",
+    "            a = item.get('answer','') or item.get('output','')\n",
+    "            if len(a) > 20:\n",
     "                pairs.append(qa_chat(q, a[:500]))\n",
-    "            print(f'Reddit (backup): {len(pairs)} pairs')\n",
-    "        except Exception as e2:\n",
-    "            print(f'Reddit backup also failed: {e2}')\n",
-    "    return pairs\n",
-    "\n",
-    "# ── Source 3: YouTube via HuggingFace (no minedojo needed) ───────\n",
-    "def get_youtube(limit=8000):\n",
-    "    KW = ['wood','mine','craft','survive','build','explore','cave',\n",
-    "          'diamond','pickaxe','stone','coal','iron','house','farm']\n",
-    "    pairs = []\n",
-    "    try:\n",
-    "        ds = load_dataset('MineDojo/foundation_model_data', 'youtube',\n",
-    "                          split='train', streaming=True, trust_remote_code=True)\n",
-    "        for item in ds:\n",
-    "            if len(pairs) >= limit: break\n",
-    "            t  = item.get('title',''); tr = item.get('transcript','')\n",
-    "            if len(tr) < 100: continue\n",
-    "            if not any(k in t.lower() for k in KW): continue\n",
-    "            ws = tr.split()\n",
-    "            for i in range(0, min(len(ws),600), 150):\n",
-    "                chunk = ' '.join(ws[i:i+150])\n",
-    "                if len(chunk) > 60:\n",
-    "                    pairs.append(qa_chat(f'Minecraft gameplay: {t}', chunk))\n",
-    "        print(f'YouTube: {len(pairs)} pairs')\n",
+    "        print(f'HF Q&A Dataset 1: {len(pairs)} pairs')\n",
     "    except Exception as e:\n",
-    "        print(f'YouTube skip: {e}')\n",
+    "        print(f'Dataset 1 error: {e}')\n",
+    "    \n",
+    "    try:\n",
+    "        ds2 = load_dataset('minhaozhang/minecraft-question-answer-630k', split='train', streaming=True)\n",
+    "        for item in ds2:\n",
+    "            if len(pairs) >= limit * 1.5: break\n",
+    "            q = item.get('question','') or item.get('instruction','')\n",
+    "            a = item.get('answer','') or item.get('output','')\n",
+    "            if len(a) > 20:\n",
+    "                pairs.append(qa_chat(q, a[:500]))\n",
+    "        print(f'HF Q&A Dataset 2: {len(pairs)} pairs')\n",
+    "    except Exception as e:\n",
+    "        print(f'Dataset 2 error: {e}')\n",
+    "        \n",
     "    return pairs\n",
     "\n",
-    "# ── Source 4: Bot sessions (uploaded as Kaggle dataset input) ────\n",
+    "# ── Source 3: Bot sessions (uploaded as Kaggle dataset input) ────\n",
     "def get_sessions():\n",
     "    path = '/kaggle/input/mineagent-sessions/session_log.jsonl'\n",
     "    if not Path(path).exists():\n",
-    "        print('No session_log.jsonl found in Kaggle dataset input')\n",
     "        return []\n",
     "    VALID = {'SEEK','MINE','MOVE','CRAFT','EAT','CHAT','FOLLOW','GOTO','STOP'}\n",
     "    pairs = []\n",
@@ -154,9 +108,8 @@ CELL3 = [
     "    return pairs\n",
     "\n",
     "# ── Build datasets ────────────────────────────────────────────────\n",
-    "stage1 = get_wiki(max_pages=600)  # 3 Q&A per page = ~1800 pairs\n",
-    "stage1 += get_reddit()\n",
-    "stage1 += get_youtube()\n",
+    "stage1 = get_wiki(max_pages=400)\n",
+    "stage1 += get_hf_qa(limit=18000)\n",
     "\n",
     "stage2 = get_sessions()\n",
     "\n",
@@ -165,21 +118,14 @@ CELL3 = [
     "\n",
     "save('/kaggle/working/data/stage1.jsonl', stage1)\n",
     "save('/kaggle/working/data/stage2.jsonl', stage2)\n",
-    "print(f'\\nStage1: {len(stage1)} | Stage2: {len(stage2)}')\n",
-    "print('NOTE: Stage2 synthetic examples loaded in Cell 5 automatically')",
+    "print(f'\\nStage1: {len(stage1)} | Stage2: {len(stage2)}')\n"
 ]
 
 # Apply patches
-patched = {"c2": CELL1, "c4": CELL3}
 for cell in nb["cells"]:
-    if cell.get("id") in patched:
-        cell["source"] = patched[cell["id"]]
+    if cell.get("id") == "c4":
+        cell["source"] = CELL3_NEW
         print(f"Patched cell id={cell['id']}")
 
 nb_path.write_text(json.dumps(nb, indent=1, ensure_ascii=False), encoding="utf-8")
 print("Saved:", nb_path)
-print("\nSummary of fixes:")
-print("  Cell 1: removed minedojo (needs Java), kept all training libs")
-print("  Cell 3: Reddit/YouTube now use HuggingFace datasets API directly")
-print("  Cell 3: Wiki extended to 600 pages x 3 Q&A = ~1800 stage1 pairs")
-print("  Cell 5: unchanged — loads synthetic_stage2.jsonl (1500 unique examples)")
