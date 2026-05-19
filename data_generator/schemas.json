@@ -1,0 +1,79 @@
+{
+  "state_schema": {
+    "type": "object",
+    "required": ["v", "hp", "food", "pos", "facing", "inv", "equipped", "nearby", "mobs", "time", "raining", "biome", "goal", "subgoal", "memory"],
+    "properties": {
+      "v": {"type": "integer"},
+      "hp": {"type": "number"},
+      "food": {"type": "number"},
+      "pos": {
+        "type": "object",
+        "required": ["x", "y", "z"],
+        "properties": {
+          "x": {"type": "number"},
+          "y": {"type": "number"},
+          "z": {"type": "number"}
+        }
+      },
+      "facing": {"type": "string"},
+      "inv": {"type": "object"},
+      "equipped": {"type": ["string", "null"]},
+      "nearby": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["name", "dist", "pos"],
+          "properties": {
+            "name": {"type": "string"},
+            "dist": {"type": "number"},
+            "pos": {
+              "type": "object",
+              "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}
+            }
+          }
+        }
+      },
+      "mobs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["name", "dist", "hp", "hostile"],
+          "properties": {
+            "name": {"type": "string"},
+            "dist": {"type": "number"},
+            "hp": {"type": "number"},
+            "hostile": {"type": "boolean"}
+          }
+        }
+      },
+      "time": {"type": "number"},
+      "raining": {"type": "boolean"},
+      "biome": {"type": "string"},
+      "goal": {"type": ["string", "null"]},
+      "subgoal": {"type": ["string", "null"]},
+      "memory": {
+        "type": "array",
+        "items": {"type": "string"}
+      }
+    }
+  },
+  "action_schema": {
+    "type": "object",
+    "required": ["action"],
+    "properties": {
+      "action": {"type": "string", "enum": ["MINE", "MOVE", "MOVE_TO", "EAT", "CRAFT", "PLACE", "ATTACK", "EQUIP", "DROP", "WAIT"]},
+      "target": {"type": "string"},
+      "direction": {"type": "string", "enum": ["north", "south", "east", "west", "up", "down"]},
+      "distance": {"type": "number"},
+      "pos": {
+        "type": "object",
+        "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}}
+      },
+      "item": {"type": "string"},
+      "quantity": {"type": "number"},
+      "block": {"type": "string"},
+      "slot": {"type": "string", "enum": ["hand", "head", "chest", "legs", "feet"]},
+      "ticks": {"type": "number"}
+    }
+  }
+}

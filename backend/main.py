@@ -104,8 +104,8 @@ def _safety_filter(action: ActionResponse, goal: str) -> ActionResponse:
                     target = {"stone": "stone", "coal": "coal_ore", "iron": "iron_ore",
                               "birch": "birch_log", "acacia": "acacia_log"}.get(kw, "oak_log")
                     break
-            return ActionResponse(action="SEEK", params={"target": target},
-                                  reasoning=f"safety: redirected from wrong-block MINE to SEEK {target}",
+            return ActionResponse(action="WAIT", params={"ticks": 20},
+                                  reasoning=f"safety: redirected from wrong-block MINE to WAIT",
                                   source="safety")
     return action
 
